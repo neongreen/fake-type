@@ -145,4 +145,3 @@ sendString string = do
     threadDelay 12000
   changeSymbol display freeKey 0 noSymbol mapping
   closeDisplay display
-
