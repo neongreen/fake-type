@@ -26,6 +26,7 @@ library
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >= 4.7 && < 5
+                     , base-prelude == 0.1.*
                      , X11
   extra-libraries:     "Xtst"
   ghc-options:         -Wall -fno-warn-unused-do-bind

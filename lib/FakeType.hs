@@ -2,7 +2,7 @@
 ForeignFunctionInterface,
 NondecreasingIndentation,
 RecordWildCards,
-ViewPatterns
+NoImplicitPrelude
   #-}
 
 
@@ -13,13 +13,12 @@ module FakeType
 where
 
 
+import BasePrelude
 import Numeric
-import Data.Foldable
 import Foreign
 import Foreign.C.Types
 import Graphics.X11
 
-import Control.Concurrent
 
 foreign import ccall unsafe "HsXlib.h XGetKeyboardMapping"
   xGetKeyboardMapping
