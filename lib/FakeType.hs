@@ -9,6 +9,7 @@ NoImplicitPrelude
 module FakeType
 (
   sendString,
+  sendStringWithDelay,
 )
 where
 
@@ -110,7 +111,6 @@ changeSymbol
 changeSymbol display key pos sym mapping = do
   pokeElemOff (symArray mapping) (symIndex key pos mapping) sym
   changeKeyboardMapping display (Just (key, 1)) mapping
-  flush display
 
 findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
 findM _ [] = return Nothing
@@ -130,17 +130,29 @@ findFreeKey mapping@Mapping{..} = do
     Just k  -> return k
 
 sendString :: String -> IO ()
-sendString string = do
+sendString = sendStringWithDelay 30
+
+sendStringWithDelay
+  :: Int               -- ^ Delay in milliseconds
+  -> String
+  -> IO ()
+sendStringWithDelay delay string = do
   display <- openDisplay ":0.0"
   mapping <- getKeyboardMapping display Nothing
   freeKey <- findFreeKey mapping
-  sync display False
+  let syncAndFlush = sync display False >> flush display
   forM_ string $ \char -> do
     let sym = stringToKeysym ('U' : showHex (fromEnum char) "")
     changeSymbol display freeKey 0 sym mapping
+    syncAndFlush
+    --
     xFakeKeyEvent display freeKey True 0
+    syncAndFlush
+    threadDelay (delay * 500)
+    --
     xFakeKeyEvent display freeKey False 0
-    sync display False
-    threadDelay 12000
+    syncAndFlush
+    threadDelay (delay * 500)
   changeSymbol display freeKey 0 noSymbol mapping
+  syncAndFlush
   closeDisplay display
