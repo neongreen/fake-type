@@ -94,22 +94,23 @@ changeKeyboardMapping display mb mapping@Mapping{..} =
         (advancePtr symArray (symIndex key 0 mapping))
         amount
 
-getSymbol
-  :: KeyCode     -- ^ Key
-  -> Int         -- ^ Position (usually 0..3)
-  -> Mapping
-  -> IO KeySym
-getSymbol key pos mapping =
-  peekElemOff (symArray mapping) (symIndex key pos mapping)
-
 charSym :: Char -> KeySym
 charSym char = stringToKeysym ('U' : showHex (fromEnum char) "")
 
--- Find keys that have an empty default position (so that we'd be able to
--- simulate a keypress without having to use any key modifiers).
+-- Find unused keys (so that we'd be able to simulate a keypress without
+-- having to use any key modifiers). An important thing is that the keys have
+-- to be completely unused – keys -that have Alt or Super assigned to them-
+-- will behave weirdly if you try to use them (even tho they don't have any
+-- symbols in default positions).
 findFreeKeys :: Mapping -> IO [KeyCode]
 findFreeKeys mapping@Mapping{..} = do
-  let isEmptyKey key = (== noSymbol) <$> getSymbol key 0 mapping
+  let isEmptyKey key = do
+        -- Get a pointer to the part of symArray that corresponds to the key.
+        let keyPtr = advancePtr symArray (symIndex key 0 mapping)
+        -- Get the symbols (there's symPerKey of them).
+        syms <- peekArray (fromIntegral symPerKey) keyPtr
+        -- Check that they all are noSymbol.
+        return (all (== noSymbol) syms)
   filterM isEmptyKey (take (fromIntegral keyCount) [minKey..])
 
 sendString :: String -> IO ()
