@@ -114,14 +114,15 @@ findFreeKeys mapping@Mapping{..} = do
   filterM isEmptyKey (take (fromIntegral keyCount) [minKey..])
 
 sendString :: String -> IO ()
-sendString = sendStringWithDelay 10 6
+sendString = sendStringWithDelay 20 8 20
 
 sendStringWithDelay
   :: Int               -- ^ Delay after changing the layout (in ms)
   -> Int               -- ^ Delay after pressing\/releasing a key
+  -> Int               -- ^ Delay after entering a batch of symbols
   -> String
   -> IO ()
-sendStringWithDelay mappingDelay pressDelay string = do
+sendStringWithDelay mappingDelay pressDelay batchDelay string = do
   display <- openDisplay ":0.0"
   mapping <- getKeyboardMapping display Nothing
   freeKeys <- findFreeKeys mapping
@@ -149,6 +150,7 @@ sendStringWithDelay mappingDelay pressDelay string = do
       xFakeKeyEvent display key False 0
       syncAndFlush
       threadDelay (pressDelay * 1000)
+    threadDelay (batchDelay * 1000)
   -- Now we have to make the keys free again.
   assignSyms (repeat noSymbol)
   closeDisplay display
