@@ -131,8 +131,9 @@ sendStringWithDelay mappingDelay pressDelay batchDelay string = do
   let syncAndFlush = sync display False >> flush display
   -- This function assigns given symbols to freeKeys.
   let assignSyms syms = do
-        for_ (zip syms freeKeys) $ \(sym, key) ->
-          pokeElemOff (symArray mapping) (symIndex key 0 mapping) sym
+        for_ (zip syms freeKeys) $ \(sym, key) -> do
+          let keyPtr = advancePtr (symArray mapping) (symIndex key 0 mapping)
+          pokeArray keyPtr (replicate (fromIntegral (symPerKey mapping)) sym)
         changeKeyboardMapping display Nothing mapping
         syncAndFlush
         threadDelay (mappingDelay * 1000)
