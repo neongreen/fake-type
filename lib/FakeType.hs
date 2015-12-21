@@ -19,6 +19,7 @@ import Numeric
 import Foreign
 import Foreign.C.Types
 import Graphics.X11
+import Data.List.Split (chunksOf)
 
 
 foreign import ccall unsafe "HsXlib.h XGetKeyboardMapping"
@@ -101,58 +102,52 @@ getSymbol
 getSymbol key pos mapping =
   peekElemOff (symArray mapping) (symIndex key pos mapping)
 
-changeSymbol
-  :: Display
-  -> KeyCode     -- ^ Key
-  -> Int         -- ^ Position (usually 0..3)
-  -> KeySym      -- ^ Symbol
-  -> Mapping
-  -> IO ()
-changeSymbol display key pos sym mapping = do
-  pokeElemOff (symArray mapping) (symIndex key pos mapping) sym
-  changeKeyboardMapping display (Just (key, 1)) mapping
+charSym :: Char -> KeySym
+charSym char = stringToKeysym ('U' : showHex (fromEnum char) "")
 
-findM :: Monad m => (a -> m Bool) -> [a] -> m (Maybe a)
-findM _ [] = return Nothing
-findM p (x:xs) = do
-  r <- p x
-  if r then return (Just x) else findM p xs
-
--- Find a key that has an empty default position (so that we'd be able to
--- simulate a keypress without having to use any key modifiers). If there's
--- no empty key, throw an exception.
-findFreeKey :: Mapping -> IO KeyCode
-findFreeKey mapping@Mapping{..} = do
+-- Find keys that have an empty default position (so that we'd be able to
+-- simulate a keypress without having to use any key modifiers).
+findFreeKeys :: Mapping -> IO [KeyCode]
+findFreeKeys mapping@Mapping{..} = do
   let isEmptyKey key = (== noSymbol) <$> getSymbol key 0 mapping
-  mbFreeKey <- findM isEmptyKey (take (fromIntegral keyCount) [minKey..])
-  case mbFreeKey of
-    Nothing -> error "findFreeKey: couldn't find a free key"
-    Just k  -> return k
+  filterM isEmptyKey (take (fromIntegral keyCount) [minKey..])
 
 sendString :: String -> IO ()
-sendString = sendStringWithDelay 30
+sendString = sendStringWithDelay 10 6
 
 sendStringWithDelay
-  :: Int               -- ^ Delay in milliseconds
+  :: Int               -- ^ Delay after changing the layout (in ms)
+  -> Int               -- ^ Delay after pressing\/releasing a key
   -> String
   -> IO ()
-sendStringWithDelay delay string = do
+sendStringWithDelay mappingDelay pressDelay string = do
   display <- openDisplay ":0.0"
   mapping <- getKeyboardMapping display Nothing
-  freeKey <- findFreeKey mapping
+  freeKeys <- findFreeKeys mapping
+  when (null freeKeys) $
+    error "sendStringWithDelay: couldn't find a free key"
   let syncAndFlush = sync display False >> flush display
-  forM_ string $ \char -> do
-    let sym = stringToKeysym ('U' : showHex (fromEnum char) "")
-    changeSymbol display freeKey 0 sym mapping
-    syncAndFlush
-    --
-    xFakeKeyEvent display freeKey True 0
-    syncAndFlush
-    threadDelay (delay * 500)
-    --
-    xFakeKeyEvent display freeKey False 0
-    syncAndFlush
-    threadDelay (delay * 500)
-  changeSymbol display freeKey 0 noSymbol mapping
-  syncAndFlush
+  -- This function assigns given symbols to freeKeys.
+  let assignSyms syms = do
+        for_ (zip syms freeKeys) $ \(sym, key) ->
+          pokeElemOff (symArray mapping) (symIndex key 0 mapping) sym
+        changeKeyboardMapping display Nothing mapping
+        syncAndFlush
+        threadDelay (mappingDelay * 1000)
+  -- We break the string into chunks, and for each chunk we first assign all
+  -- characters to free keys and then press those keys; it's done like this
+  -- because changeKeyboardMapping is pretty slow and doing it for *each* key
+  -- results in glitches when typing.
+  for_ (chunksOf (length freeKeys) string) $ \chunk -> do
+    let len = length chunk
+    assignSyms (map charSym chunk)
+    for_ (take len freeKeys) $ \key -> do
+      xFakeKeyEvent display key True 0
+      syncAndFlush
+      threadDelay (pressDelay * 1000)
+      xFakeKeyEvent display key False 0
+      syncAndFlush
+      threadDelay (pressDelay * 1000)
+  -- Now we have to make the keys free again.
+  assignSyms (repeat noSymbol)
   closeDisplay display
