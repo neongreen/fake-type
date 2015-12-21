@@ -122,36 +122,38 @@ sendStringWithDelay
   -> Int               -- ^ Delay after entering a batch of symbols
   -> String
   -> IO ()
-sendStringWithDelay mappingDelay pressDelay batchDelay string = do
-  display <- openDisplay ":0.0"
-  mapping <- getKeyboardMapping display Nothing
-  freeKeys <- findFreeKeys mapping
-  when (null freeKeys) $
-    error "sendStringWithDelay: couldn't find a free key"
-  let syncAndFlush = sync display False >> flush display
-  -- This function assigns given symbols to freeKeys.
-  let assignSyms syms = do
-        for_ (zip syms freeKeys) $ \(sym, key) -> do
-          let keyPtr = advancePtr (symArray mapping) (symIndex key 0 mapping)
-          pokeArray keyPtr (replicate (fromIntegral (symPerKey mapping)) sym)
-        changeKeyboardMapping display Nothing mapping
-        syncAndFlush
-        threadDelay (mappingDelay * 1000)
-  -- We break the string into chunks, and for each chunk we first assign all
-  -- characters to free keys and then press those keys; it's done like this
-  -- because changeKeyboardMapping is pretty slow and doing it for *each* key
-  -- results in glitches when typing.
-  for_ (chunksOf (length freeKeys) string) $ \chunk -> do
-    let len = length chunk
-    assignSyms (map charSym chunk)
-    for_ (take len freeKeys) $ \key -> do
-      xFakeKeyEvent display key True 0
-      syncAndFlush
-      threadDelay (pressDelay * 1000)
-      xFakeKeyEvent display key False 0
-      syncAndFlush
-      threadDelay (pressDelay * 1000)
-    threadDelay (batchDelay * 1000)
-  -- Now we have to make the keys free again.
-  assignSyms (repeat noSymbol)
-  closeDisplay display
+sendStringWithDelay mappingDelay pressDelay batchDelay string =
+  bracket (openDisplay ":0.0") closeDisplay $ \display -> do
+    mapping <- getKeyboardMapping display Nothing
+    freeKeys <- findFreeKeys mapping
+    when (null freeKeys) $
+      error "sendStringWithDelay: couldn't find a free key"
+    let syncAndFlush = sync display False >> flush display
+    -- This function assigns given symbols to freeKeys.
+    let assignSyms syms = do
+          for_ (zip syms freeKeys) $ \(sym, key) -> do
+            let keyPtr = advancePtr (symArray mapping) (symIndex key 0 mapping)
+            pokeArray keyPtr (replicate (fromIntegral (symPerKey mapping)) sym)
+          changeKeyboardMapping display Nothing mapping
+          syncAndFlush
+          threadDelay (mappingDelay * 1000)
+    -- To enter a chunk of characters, we first assign all characters to free
+    -- keys and then press those keys; it's done like this because
+    -- changeKeyboardMapping is pretty slow and doing it for *each* key
+    -- results in glitches when typing.
+    let typeChunk chunk = do
+          let len = length chunk
+          assignSyms (map charSym chunk)
+          for_ (take len freeKeys) $ \key -> do
+            xFakeKeyEvent display key True 0
+            syncAndFlush
+            threadDelay (pressDelay * 1000)
+            xFakeKeyEvent display key False 0
+            syncAndFlush
+            threadDelay (pressDelay * 1000)
+          threadDelay (batchDelay * 1000)
+    -- Okay, let's enter all chunks. We also have to make the keys free again
+    -- after entering the chunks.
+    let chunks = chunksOf (length freeKeys) string
+    mapM_ typeChunk chunks `finally`
+      assignSyms (repeat noSymbol)
